@@ -25,7 +25,7 @@ def _close_ring(coords):
 def save_as_poly(gdf: gpd.GeoDataFrame, poly_path: Path, header_name: str):
     """Save polygon/multipolygon GeoDataFrame to Osmosis .poly format (supports holes)."""
     poly_path.parent.mkdir(parents=True, exist_ok=True)
-    geom = gdf.unary_union
+    geom = gdf.union_all()
     if isinstance(geom, Polygon):
         geoms: Iterable[Polygon] = [geom]
     elif isinstance(geom, MultiPolygon):
