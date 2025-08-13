@@ -1,5 +1,7 @@
 # Project specific
+cache
 data
+data_pipeline
 outputs
 notebooks
 
