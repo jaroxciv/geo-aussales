@@ -1,3 +1,4 @@
+import re
 import numpy as np
 import pandas as pd
 import geopandas as gpd
@@ -6,6 +7,7 @@ from loguru import logger
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SAFE_MAXLEN = 60  # keep some headroom
 
 
 def relpath(p: Path) -> str:
@@ -14,6 +16,60 @@ def relpath(p: Path) -> str:
         return str(p.relative_to(PROJECT_ROOT))
     except ValueError:
         return str(p)
+
+
+def sanitize_for_gpkg(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """
+    Make column names/dtypes GDAL-friendly:
+    - ASCII, [a-z0-9_], lowercase
+    - truncate to SAFE_MAXLEN and ensure uniqueness
+    - cast bool -> int8, nullable ints -> int32
+    - object columns -> string (replace None with "")
+    """
+    gdf = gdf.copy()
+
+    # 1) sanitize column names
+    new_cols = []
+    seen = set()
+    for col in gdf.columns:
+        if col == "geometry":
+            new_cols.append(col)
+            continue
+        safe = col.lower()
+        safe = re.sub(r"[^a-z0-9_]", "_", safe)
+        safe = re.sub(r"__+", "_", safe).strip("_")
+        safe = safe[:SAFE_MAXLEN]
+        base = safe
+        i = 1
+        while safe in seen:
+            suffix = f"_{i}"
+            safe = base[: SAFE_MAXLEN - len(suffix)] + suffix
+            i += 1
+        seen.add(safe)
+        new_cols.append(safe)
+    gdf.columns = new_cols
+
+    # 2) cast dtypes
+    for c in gdf.columns:
+        if c == "geometry":
+            continue
+        s = gdf[c]
+        if pd.api.types.is_bool_dtype(s):
+            gdf[c] = s.astype("int8")
+        elif pd.api.types.is_integer_dtype(s):
+            # downcast large pandas nullable ints to plain int32
+            gdf[c] = s.fillna(0).astype("int32")
+        elif pd.api.types.is_float_dtype(s):
+            # ok to leave as float64
+            pass
+        elif pd.api.types.is_object_dtype(s):
+            # ensure plain strings (no lists/dicts)
+            gdf[c] = s.astype(str).fillna("")
+        else:
+            # fallback: stringify
+            gdf[c] = s.astype(str).fillna("")
+
+    return gdf
 
 
 def load_or_extract(layer_name, extractor_fn, raw_dir, slug):
@@ -63,7 +119,9 @@ def aggregate_roads(
     # Convert numeric-like columns safely
     for col in ["lanes", "maxspeed"]:
         if col in edges_with_hex.columns:
-            edges_with_hex[col] = pd.to_numeric(edges_with_hex[col].copy(), errors="coerce")
+            edges_with_hex[col] = pd.to_numeric(
+                edges_with_hex[col].copy(), errors="coerce"
+            )
 
     # Base aggregations
     agg_dict = {
@@ -91,7 +149,9 @@ def aggregate_roads(
     ]
     for col in categorical_cols:
         if col in edges_with_hex.columns:
-            dummies = pd.get_dummies(edges_with_hex[col].fillna("unknown").copy(), prefix=col)
+            dummies = pd.get_dummies(
+                edges_with_hex[col].fillna("unknown").copy(), prefix=col
+            )
             edges_with_hex = pd.concat([edges_with_hex, dummies], axis=1)
             for dummy_col in dummies.columns:
                 agg_dict[dummy_col] = "sum"
@@ -124,10 +184,19 @@ def aggregate_buildings(
 
     # --- Filter valid buildings ---
     if "building" in buildings_gdf.columns:
-        exclude_values = {"bridge", "road", "footway", "service", "steps", "path", "cycleway", "corridor"}
+        exclude_values = {
+            "bridge",
+            "road",
+            "footway",
+            "service",
+            "steps",
+            "path",
+            "cycleway",
+            "corridor",
+        }
         buildings_gdf = buildings_gdf[
-            buildings_gdf["building"].notna() &
-            (~buildings_gdf["building"].isin(exclude_values))
+            buildings_gdf["building"].notna()
+            & (~buildings_gdf["building"].isin(exclude_values))
         ]
     buildings_gdf = buildings_gdf[
         ~buildings_gdf.geometry.is_empty & buildings_gdf.geometry.is_valid
@@ -208,7 +277,7 @@ def aggregate_buildings(
 
     # --- Ensure all hexes are present ---
     agg_df = hex_gdf[[hex_id_col]].merge(agg_df, on=hex_id_col, how="left")
-    agg_df["buildings_count"] = agg_df["buildings_count"].fillna(0).astype(int)
+    agg_df["buildings_count"] = agg_df["buildings_count"].fillna(0)
     agg_df["total_building_area_m2"] = agg_df["total_building_area_m2"].fillna(0)
 
     return agg_df
@@ -343,7 +412,7 @@ def aggregate_landuse(
 
     # Fill missing with 0
     count_cols = [col for col in agg_df.columns if col != hex_id_col]
-    agg_df[count_cols] = agg_df[count_cols].fillna(0).astype(int)
+    agg_df[count_cols] = agg_df[count_cols].fillna(0)
 
     return agg_df
 
@@ -401,6 +470,6 @@ def aggregate_natural(
 
     # Fill NaNs with 0
     count_cols = [col for col in agg_df.columns if col != hex_id_col]
-    agg_df[count_cols] = agg_df[count_cols].fillna(0).astype(int)
+    agg_df[count_cols] = agg_df[count_cols].fillna(0)
 
     return agg_df
