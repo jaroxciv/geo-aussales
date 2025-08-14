@@ -13,7 +13,6 @@ from helpers import (
     rel,
     load_or_extract,
     sanitize_for_gpkg,
-    slugify,
     find_pbf_for_aoi,
     aggregate_roads,
     aggregate_buildings,
@@ -21,6 +20,9 @@ from helpers import (
     aggregate_landuse,
     aggregate_natural,
 )
+
+# Import unified slugify
+from data_pipeline.utils import slugify
 
 # --- Project paths ---
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -44,10 +46,10 @@ def aggregate_for_aoi(
     logger.info(f"🚀 Initializing Pyrosm for AOI: {aoi_name}")
     osm = OSM(str(pbf_path), bounding_box=subgrid.union_all())
 
-    # Use per-AOI slugs for cache file names
+    # Per-AOI slug for cache file naming
     per_aoi_slug = slugify(aoi_name)
 
-    # Extract or load
+    # Extract or load layers
     roads = load_or_extract(
         "roads",
         lambda: osm.get_network(network_type="driving"),
@@ -115,7 +117,7 @@ if __name__ == "__main__":
         aoi_meta = json.load(f)
 
     aoi_raw = aoi_meta.get("aoi_raw")
-    slug_full = aoi_meta.get("aoi_slug_full")
+    slug_group = aoi_meta.get("aoi_slug")  # unified merged slug
     resolution = aoi_meta.get("h3_resolution")
 
     if not aoi_raw:
@@ -129,9 +131,7 @@ if __name__ == "__main__":
     if args.grid:
         grid_path = Path(args.grid)
     else:
-        grid_path = (
-            DATA_DIR / "processed" / "grid" / f"{slug_full}_merged_res{resolution}.gpkg"
-        )
+        grid_path = DATA_DIR / "processed" / "grid" / f"{slug_group}_res{resolution}.gpkg"
     if not grid_path.exists():
         raise FileNotFoundError(f"H3 merged grid file not found: {rel(grid_path)}")
     logger.info(f"📦 Loading merged H3 grid from {rel(grid_path)}")
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         output_path = Path(args.output)
     else:
         output_path = (
-            DATA_DIR / "processed" / "osm" / f"{slug_full}_osm_hex_features.gpkg"
+            DATA_DIR / "processed" / "osm" / f"{slug_group}_osm_hex_features.gpkg"
         )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
