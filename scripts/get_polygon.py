@@ -6,12 +6,7 @@ from pathlib import Path
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
 from srai.regionalizers import geocode_to_region_gdf
-
-
-def slugify(name: str) -> str:
-    """Convert a string into a safe slug (lowercase, underscores)."""
-    s = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-    return re.sub(r"_+", "_", s)
+from data_pipeline.utils import slugify
 
 
 def _close_ring(coords):
