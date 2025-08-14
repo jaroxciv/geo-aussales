@@ -10,6 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]  # geo-aussales root
 PIPELINE_DIR = Path(__file__).parent
 VENV_PYTHON = sys.executable  # use current environment
 
+# Import shared slugify for consistent naming
+from data_pipeline.utils import slugify
+
 
 def rel(path: Path) -> Path:
     """Return path relative to project root."""
@@ -35,37 +38,40 @@ if __name__ == "__main__":
     parser.add_argument(
         "--enum", help="Enum group name from cities.py (e.g., 'INNER_MELBOURNE')"
     )
+    parser.add_argument(
+        "--country",
+        default="Australia",
+        help="Country to append to AOI(s) if not already present (e.g., 'Australia')"
+    )
     parser.add_argument("--resolution", type=int, required=True, help="H3 resolution")
     args = parser.parse_args()
 
-
-    # TODO: FIX SINGLE AOI PARSING
     # --- Resolve AOIs ---
     if args.enum:
-        # Import dynamically so cities.py is only needed if using enum
         from scripts.cities import CityGroups
-
         aoi_list = CityGroups.get(args.enum)
-        slug = args.enum.lower()
     elif args.aoi:
         aoi_list = args.aoi
-        if len(aoi_list) == 1:
-            slug = aoi_list[0].split(",")[0].lower().replace(" ", "_")
-        else:
-            # Multiple places → create a group slug
-            slug = "_".join(
-                [p.split(",")[0].lower().replace(" ", "_") for p in aoi_list]
-            )
     else:
         parser.error("You must provide either --aoi or --enum")
 
-    aoi_slug_full = slug
-    aoi_raw = aoi_list if len(aoi_list) > 1 else aoi_list[0]
+    # Append country if provided and missing
+    if args.country:
+        aoi_list = [
+            a if args.country.lower() in a.lower()
+            else f"{a}, {args.country}"
+            for a in aoi_list
+        ]
 
+    # Create slugs
+    slugs = [slugify(a) for a in aoi_list]
+    slug = args.enum.lower() if args.enum else (slugs[0] if len(slugs) == 1 else "_".join(slugs))
+
+    # Save metadata
     metadata = {
-        "aoi_raw": aoi_raw,
-        "aoi_slug": slug,  # short for PBF
-        "aoi_slug_full": aoi_slug_full,  # full for filenames
+        "aoi_raw": aoi_list if len(aoi_list) > 1 else aoi_list[0],
+        "aoi_slug": slug,
+        "aoi_slugs_individual": slugs,
         "h3_resolution": args.resolution,
     }
 
@@ -77,10 +83,8 @@ if __name__ == "__main__":
     logger.success(f"📝 Metadata created at {rel(metadata_path)}")
 
     # --- Define file paths ---
-    pbf_path = PROJECT_ROOT / f"data/external/{aoi_slug_full}.osm.pbf"
-    grid_path = (
-        PROJECT_ROOT / f"data/processed/grid/{aoi_slug_full}_res{args.resolution}.gpkg"
-    )
+    pbf_path = PROJECT_ROOT / f"data/external/{slug}.osm.pbf"
+    grid_path = PROJECT_ROOT / f"data/processed/grid/{slug}_res{args.resolution}.gpkg"
 
     if not pbf_path.exists():
         raise FileNotFoundError(f"❌ PBF file not found at {rel(pbf_path)}")
