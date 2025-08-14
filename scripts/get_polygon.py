@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-import argparse
 import re
+import argparse
 from pathlib import Path
-from typing import Iterable, List
 
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon
@@ -16,7 +15,7 @@ def slugify(name: str) -> str:
 
 
 def _close_ring(coords):
-    # ensure first = last
+    """Ensure first coordinate = last coordinate."""
     if coords[0] != coords[-1]:
         coords = list(coords) + [coords[0]]
     return coords
@@ -27,7 +26,7 @@ def save_as_poly(gdf: gpd.GeoDataFrame, poly_path: Path, header_name: str):
     poly_path.parent.mkdir(parents=True, exist_ok=True)
     geom = gdf.union_all()
     if isinstance(geom, Polygon):
-        geoms: Iterable[Polygon] = [geom]
+        geoms = [geom]
     elif isinstance(geom, MultiPolygon):
         geoms = geom.geoms
     else:
@@ -50,14 +49,11 @@ def save_as_poly(gdf: gpd.GeoDataFrame, poly_path: Path, header_name: str):
         f.write("END\n")
 
 
-def geocode_many(places: List[str]) -> gpd.GeoDataFrame:
-    """Geocode one or more places and return a single GeoDataFrame in EPSG:4326."""
-    gdfs = []
-    for p in places:
-        g = geocode_to_region_gdf(p).to_crs(4326)
-        g["source_name"] = p
-        gdfs.append(g[["source_name", "geometry"]])
-    return gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True), crs="EPSG:4326")
+def geocode_single(place: str) -> gpd.GeoDataFrame:
+    """Geocode one place and return GeoDataFrame in EPSG:4326."""
+    gdf = geocode_to_region_gdf(place).to_crs(4326)
+    gdf["aoi_name"] = place
+    return gdf[["aoi_name", "geometry"]]
 
 
 def main():
@@ -67,11 +63,7 @@ def main():
     parser.add_argument(
         "place",
         nargs="+",
-        help="One or more place names (e.g., 'CBD, Melbourne, Australia' 'Carlton, Melbourne, Australia').",
-    )
-    parser.add_argument(
-        "--slug",
-        help="Optional slug to use for filenames (otherwise auto-generated).",
+        help="One or more place names (e.g., 'City of Melbourne, Victoria').",
     )
     parser.add_argument(
         "--outdir",
@@ -80,49 +72,27 @@ def main():
     )
     args = parser.parse_args()
 
-    places = args.place
-    is_multi = len(places) > 1
-
-    # Build a human-readable combined name if multiple inputs
-    if args.slug:
-        base_slug = slugify(args.slug)
-        header_name = base_slug
-    else:
-        if is_multi:
-            # Compact combined name for slug
-            base_slug = slugify("_".join(places))
-            header_name = " + ".join(places)
-        else:
-            base_slug = slugify(places[0])
-            header_name = places[0]
-
     outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Geocode & combine
-    if is_multi:
-        # geocode each & concat
-        frames = []
-        for p in places:
-            frames.append(geocode_to_region_gdf(p).to_crs(4326)[["geometry"]])
-        gdf = gpd.GeoDataFrame(pd.concat(frames, ignore_index=True), crs="EPSG:4326")
-    else:
-        gdf = geocode_to_region_gdf(places[0]).to_crs(4326)
+    for place in args.place:
+        slug = slugify(place)
+        header_name = place
 
-    # Write GeoJSON
-    geojson_path = outdir / f"{base_slug}.geojson"
-    gdf.to_file(geojson_path, driver="GeoJSON")
+        # Geocode
+        gdf = geocode_single(place)
 
-    # Write .poly (supports holes)
-    poly_path = outdir / f"{base_slug}.poly"
-    save_as_poly(gdf, poly_path, header_name=header_name)
+        # Save GeoJSON
+        geojson_path = outdir / f"{slug}.geojson"
+        gdf.to_file(geojson_path, driver="GeoJSON")
 
-    # Print for bash: "<poly_path> <slug>"
-    print(poly_path.as_posix(), base_slug)
+        # Save .poly
+        poly_path = outdir / f"{slug}.poly"
+        save_as_poly(gdf, poly_path, header_name=header_name)
+
+        # Print for bash pipeline
+        print(poly_path.as_posix(), slug)
 
 
 if __name__ == "__main__":
-    # local import to avoid global dependency if user only runs for .poly
-    import pandas as pd  # noqa: E402
-
     main()
