@@ -6,7 +6,7 @@ class CityGroups(Enum):
     INNER_MELBOURNE = [
         "City of Melbourne, Victoria",
         "Yarra, Victoria",
-        "City of Port Phillip, Victoria"
+        "City of Port Phillip, Victoria",
     ]
     # More groups...
 

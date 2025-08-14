@@ -131,7 +131,9 @@ if __name__ == "__main__":
     if args.grid:
         grid_path = Path(args.grid)
     else:
-        grid_path = DATA_DIR / "processed" / "grid" / f"{slug_group}_res{resolution}.gpkg"
+        grid_path = (
+            DATA_DIR / "processed" / "grid" / f"{slug_group}_res{resolution}.gpkg"
+        )
     if not grid_path.exists():
         raise FileNotFoundError(f"H3 merged grid file not found: {rel(grid_path)}")
     logger.info(f"📦 Loading merged H3 grid from {rel(grid_path)}")

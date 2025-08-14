@@ -48,7 +48,11 @@ def process_place(place: str, resolution: int):
         gdf = geocode_to_region_gdf(place).to_crs(4326)
         grid = generate_h3_grid(gdf, resolution, place)
         output_path = (
-            PROJECT_ROOT / "data" / "processed" / "grid" / f"{slug}_res{resolution}.gpkg"
+            PROJECT_ROOT
+            / "data"
+            / "processed"
+            / "grid"
+            / f"{slug}_res{resolution}.gpkg"
         )
         output_path.parent.mkdir(parents=True, exist_ok=True)
         grid.to_file(output_path, driver="GPKG")
@@ -81,12 +85,18 @@ if __name__ == "__main__":
     if not args.places:
         metadata_path = PIPELINE_ROOT / "aoi_info.json"
         if not metadata_path.exists():
-            raise FileNotFoundError(f"❌ Metadata file not found at {rel(metadata_path)}")
+            raise FileNotFoundError(
+                f"❌ Metadata file not found at {rel(metadata_path)}"
+            )
         with open(metadata_path, "r") as f:
             metadata = json.load(f)
 
         # Ensure aoi_raw is iterable
-        places = metadata["aoi_raw"] if isinstance(metadata["aoi_raw"], list) else [metadata["aoi_raw"]]
+        places = (
+            metadata["aoi_raw"]
+            if isinstance(metadata["aoi_raw"], list)
+            else [metadata["aoi_raw"]]
+        )
         resolution = args.resolution or metadata["h3_resolution"]
         merged_slug = metadata["aoi_slug"]  # unified naming from run_pipeline.py
     else:
@@ -102,7 +112,9 @@ if __name__ == "__main__":
         for future in as_completed(futures):
             slug, ok, path, data_or_msg = future.result()
             if ok:
-                logger.success(f"✅ {slug}: saved {len(data_or_msg)} hexes to {rel(path)}")
+                logger.success(
+                    f"✅ {slug}: saved {len(data_or_msg)} hexes to {rel(path)}"
+                )
                 merged_frames.append(data_or_msg)
             else:
                 logger.error(f"❌ {slug} failed: {data_or_msg}")
@@ -111,9 +123,15 @@ if __name__ == "__main__":
     if merged_frames:
         merged_gdf = pd.concat(merged_frames, ignore_index=True)
         merged_output_path = (
-            PROJECT_ROOT / "data" / "processed" / "grid" / f"{merged_slug}_res{resolution}.gpkg"
+            PROJECT_ROOT
+            / "data"
+            / "processed"
+            / "grid"
+            / f"{merged_slug}_res{resolution}.gpkg"
         )
         merged_gdf.to_file(merged_output_path, driver="GPKG")
-        logger.success(f"📦 Merged grid saved to {rel(merged_output_path)} ({len(merged_gdf)} total hexes)")
+        logger.success(
+            f"📦 Merged grid saved to {rel(merged_output_path)} ({len(merged_gdf)} total hexes)"
+        )
     else:
         logger.warning("⚠️ No grids generated successfully — nothing to merge.")

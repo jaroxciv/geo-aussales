@@ -41,7 +41,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--country",
         default="Australia",
-        help="Country to append to AOI(s) if not already present (e.g., 'Australia')"
+        help="Country to append to AOI(s) if not already present (e.g., 'Australia')",
     )
     parser.add_argument("--resolution", type=int, required=True, help="H3 resolution")
     args = parser.parse_args()
@@ -49,6 +49,7 @@ if __name__ == "__main__":
     # --- Resolve AOIs ---
     if args.enum:
         from scripts.cities import CityGroups
+
         aoi_list = CityGroups.get(args.enum)
     elif args.aoi:
         aoi_list = args.aoi
@@ -58,14 +59,17 @@ if __name__ == "__main__":
     # Append country if provided and missing
     if args.country:
         aoi_list = [
-            a if args.country.lower() in a.lower()
-            else f"{a}, {args.country}"
+            a if args.country.lower() in a.lower() else f"{a}, {args.country}"
             for a in aoi_list
         ]
 
     # Create slugs
     slugs = [slugify(a) for a in aoi_list]
-    slug = args.enum.lower() if args.enum else (slugs[0] if len(slugs) == 1 else "_".join(slugs))
+    slug = (
+        args.enum.lower()
+        if args.enum
+        else (slugs[0] if len(slugs) == 1 else "_".join(slugs))
+    )
 
     # Save metadata
     metadata = {
