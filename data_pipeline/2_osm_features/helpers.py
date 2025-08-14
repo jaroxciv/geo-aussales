@@ -6,6 +6,7 @@ from pathlib import Path
 from loguru import logger
 
 
+pd.set_option('future.no_silent_downcasting', True)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SAFE_MAXLEN = 60  # keep some headroom
 
@@ -110,7 +111,7 @@ def sanitize_for_gpkg(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             gdf[c] = s.astype("int8")
         elif pd.api.types.is_integer_dtype(s):
             # downcast large pandas nullable ints to plain int32
-            gdf[c] = s.fillna(0).astype("int32")
+            gdf[c] = s.fillna(0).infer_objects(copy=False).astype("int32")
         elif pd.api.types.is_float_dtype(s):
             # ok to leave as float64
             pass
@@ -168,11 +169,11 @@ def aggregate_roads(
         predicate="intersects",
     )
 
-    # Convert numeric-like columns safely
+    # Convert numeric-like columns safely (avoid SettingWithCopy warnings)
     for col in ["lanes", "maxspeed"]:
         if col in edges_with_hex.columns:
-            edges_with_hex[col] = pd.to_numeric(
-                edges_with_hex[col].copy(), errors="coerce"
+            edges_with_hex.loc[:, col] = pd.to_numeric(
+                edges_with_hex[col], errors="coerce"
             )
 
     # Base aggregations
@@ -201,9 +202,7 @@ def aggregate_roads(
     ]
     for col in categorical_cols:
         if col in edges_with_hex.columns:
-            dummies = pd.get_dummies(
-                edges_with_hex[col].fillna("unknown").copy(), prefix=col
-            )
+            dummies = pd.get_dummies(edges_with_hex[col].fillna("unknown"), prefix=col)
             edges_with_hex = pd.concat([edges_with_hex, dummies], axis=1)
             for dummy_col in dummies.columns:
                 agg_dict[dummy_col] = "sum"
@@ -221,7 +220,13 @@ def aggregate_roads(
     agg_df.rename(columns=rename_map, inplace=True)
 
     # Merge with all hexes to ensure full coverage
-    agg_df = hex_gdf[[hex_id_col]].merge(agg_df, on=hex_id_col, how="left").fillna(0)
+    agg_df = (
+        hex_gdf[[hex_id_col]]
+        .merge(agg_df, on=hex_id_col, how="left")
+        .fillna(0)
+        .infer_objects(copy=False)
+        .infer_objects(copy=False)  # explicitly downcast object columns
+    )
 
     return agg_df
 
@@ -329,8 +334,12 @@ def aggregate_buildings(
 
     # --- Ensure all hexes are present ---
     agg_df = hex_gdf[[hex_id_col]].merge(agg_df, on=hex_id_col, how="left")
-    agg_df["buildings_count"] = agg_df["buildings_count"].fillna(0)
-    agg_df["total_building_area_m2"] = agg_df["total_building_area_m2"].fillna(0)
+    agg_df["buildings_count"] = (
+        agg_df["buildings_count"].fillna(0).infer_objects(copy=False)
+    )
+    agg_df["total_building_area_m2"] = (
+        agg_df["total_building_area_m2"].fillna(0).infer_objects(copy=False)
+    )
 
     return agg_df
 
@@ -407,7 +416,7 @@ def aggregate_pois(
 
     # Fill NaNs with 0 for counts
     count_cols = [col for col in agg_df.columns if col != hex_id_col]
-    agg_df[count_cols] = agg_df[count_cols].fillna(0)
+    agg_df[count_cols] = agg_df[count_cols].fillna(0).infer_objects(copy=False)
 
     return agg_df
 
@@ -464,7 +473,7 @@ def aggregate_landuse(
 
     # Fill missing with 0
     count_cols = [col for col in agg_df.columns if col != hex_id_col]
-    agg_df[count_cols] = agg_df[count_cols].fillna(0)
+    agg_df[count_cols] = agg_df[count_cols].fillna(0).infer_objects(copy=False)
 
     return agg_df
 
@@ -522,6 +531,6 @@ def aggregate_natural(
 
     # Fill NaNs with 0
     count_cols = [col for col in agg_df.columns if col != hex_id_col]
-    agg_df[count_cols] = agg_df[count_cols].fillna(0)
+    agg_df[count_cols] = agg_df[count_cols].fillna(0).infer_objects(copy=False)
 
     return agg_df
