@@ -1,58 +1,39 @@
 #!/usr/bin/env bash
-# Extract a city/region from a large .osm.pbf file using osmium-tool
-# Usage: bash scripts/extract_pbf.sh "CityName, Country"
-
 set -euo pipefail
 
-CITY_NAME="$1"
+# --- Paths ---
 BASE_DIR="/mnt/c/Users/gnothi/projects/geo-aussales"
 PBF_SOURCE="$BASE_DIR/data/external/australia-latest.osm.pbf"
+PYTHON="$BASE_DIR/.venv/Scripts/python.exe"
 
-# --- Get .poly path and slug from Python ---
-# Python will output: "<poly_path> <slug>"
-read -r POLYGON_FILE SLUG < <(
-    /mnt/c/Users/gnothi/projects/geo-aussales/.venv/Scripts/python.exe scripts/get_polygon.py "$CITY_NAME"
-)
-
-# --- Normalize SLUG to pure ASCII, lowercase, underscores ---
-SLUG=$(echo "$SLUG" \
-    | iconv -c -t ascii//TRANSLIT \
-    | tr '[:upper:]' '[:lower:]' \
-    | sed 's/[^a-z0-9]/_/g' \
-    | sed 's/__\+/_/g' \
-    | sed 's/^_//; s/_$//')
-
-OUTPUT_FILE="$BASE_DIR/data/external/${SLUG}.osm.pbf"
-
-# --- Check osmium ---
-if ! command -v osmium &> /dev/null; then
-    echo "Installing osmium-tool..."
-    sudo apt update
-    sudo apt install -y osmium-tool
+# --- Get city names (one per line) ---
+if [[ "$1" == "--enum" ]]; then
+    GROUP_NAME="$2"
+    mapfile -t CITY_LIST < <("$PYTHON" scripts/get_city_list.py --enum "$GROUP_NAME")
+    SLUG="$GROUP_NAME"
+    shift 2
+else
+    mapfile -t CITY_LIST < <("$PYTHON" scripts/get_city_list.py "$@")
+    SLUG=$(echo "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' )
 fi
 
-# --- Check source PBF ---
-if [ ! -f "$PBF_SOURCE" ]; then
-    echo "❌ Source PBF not found: $PBF_SOURCE"
-    exit 1
-fi
+# --- Loop preserving spaces ---
+for CITY_NAME in "${CITY_LIST[@]}"; do
+    echo "📍 Extracting: $CITY_NAME"
+    read -r POLYGON_FILE SLUG_OUT < <(
+        "$PYTHON" scripts/get_polygon.py "$CITY_NAME"
+    )
 
-# --- Check polygon file ---
-if [ ! -f "$POLYGON_FILE" ]; then
-    echo "❌ Polygon file not found: $POLYGON_FILE"
-    exit 1
-fi
+    # Strip any Windows carriage returns
+    SLUG_OUT=$(echo "$SLUG_OUT" | tr -d '\r')
 
-echo "📍 Extracting $CITY_NAME from $PBF_SOURCE"
-echo "   Slug: $SLUG"
-echo "   Polygon file: $POLYGON_FILE"
-echo "   Output: $OUTPUT_FILE"
+    OUTPUT_FILE="$BASE_DIR/data/external/${SLUG_OUT}.osm.pbf"
 
-# --- Run osmium extract ---
-osmium extract \
-    --polygon "$POLYGON_FILE" \
-    --overwrite \
-    -o "$OUTPUT_FILE" \
-    "$PBF_SOURCE"
+    osmium extract \
+        --polygon "$POLYGON_FILE" \
+        --overwrite \
+        -o "$OUTPUT_FILE" \
+        "$PBF_SOURCE"
 
-echo "✅ Extraction complete: $OUTPUT_FILE"
+    echo "✅ Done: $OUTPUT_FILE"
+done
