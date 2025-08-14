@@ -4,7 +4,11 @@ set -euo pipefail
 # --- Paths ---
 BASE_DIR="/mnt/c/Users/gnothi/projects/geo-aussales"
 PBF_SOURCE="$BASE_DIR/data/external/australia-latest.osm.pbf"
+PBF_DIR="$BASE_DIR/data/external/pbf"
 PYTHON="$BASE_DIR/.venv/Scripts/python.exe"
+
+# Ensure PBF output directory exists
+mkdir -p "$PBF_DIR"
 
 # --- Get city names (one per line) ---
 if [[ "$1" == "--enum" ]]; then
@@ -27,7 +31,7 @@ for CITY_NAME in "${CITY_LIST[@]}"; do
     # Strip any Windows carriage returns
     SLUG_OUT=$(echo "$SLUG_OUT" | tr -d '\r')
 
-    OUTPUT_FILE="$BASE_DIR/data/external/${SLUG_OUT}.osm.pbf"
+    OUTPUT_FILE="$PBF_DIR/${SLUG_OUT}.osm.pbf"
 
     osmium extract \
         --polygon "$POLYGON_FILE" \
