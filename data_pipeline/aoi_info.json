@@ -1,8 +1,14 @@
 {
-  "aoi_raw": "City of Port Phillip, Victoria, Australia",
-  "aoi_slug": "city_of_port_phillip_victoria_australia",
+  "aoi_raw": [
+    "City of Melbourne, Victoria, Australia",
+    "Yarra, Victoria, Australia",
+    "City of Port Phillip, Victoria, Australia"
+  ],
+  "aoi_slug": "inner_melbourne",
   "aoi_slugs_individual": [
+    "city_of_melbourne_victoria_australia",
+    "yarra_victoria_australia",
     "city_of_port_phillip_victoria_australia"
   ],
-  "h3_resolution": 10
+  "h3_resolution": 9
 }
