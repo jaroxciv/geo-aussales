@@ -8,7 +8,13 @@ from pathlib import Path
 from loguru import logger
 from pyrosm import OSM
 
-# Import helpers
+from data_pipeline.constants import (
+    AOI_META_PATH,
+    GRID_DIR,
+    OSM_PROCESSED_DIR,
+    MERGED_DIR,
+)
+from data_pipeline.utils import slugify
 from helpers import (
     rel,
     load_or_extract,
@@ -21,24 +27,21 @@ from helpers import (
     aggregate_natural,
 )
 
-# Import unified slugify
-from data_pipeline.utils import slugify
-
-# --- Project paths ---
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_DIR = PROJECT_ROOT / "data"
-OUTPUT_DIR = PROJECT_ROOT / "outputs"
-PIPELINE_ROOT = PROJECT_ROOT / "data_pipeline"
-EXTERNAL_DIR = DATA_DIR / "external"
-
 
 def aggregate_for_aoi(
     aoi_name: str, hex_gdf: gpd.GeoDataFrame, pbf_path: Path
 ) -> gpd.GeoDataFrame:
     """Aggregate OSM features for a specific AOI using only that AOI's subgrid."""
-    subgrid = hex_gdf[hex_gdf["aoi_name"] == aoi_name].copy()
+    target_slug = slugify(aoi_name)
+    hex_gdf = hex_gdf.copy()
+    hex_gdf["aoi_slug"] = hex_gdf["aoi_name"].apply(slugify)
+
+    subgrid = hex_gdf[hex_gdf["aoi_slug"] == target_slug]
     if subgrid.empty:
-        logger.warning(f"⚠️ AOI '{aoi_name}' has no hexes in merged grid. Skipping.")
+        logger.warning(
+            f"⚠️ AOI '{aoi_name}' has no matching hexes in "
+            f"provided grid (slug={target_slug}). Skipping."
+        )
         return gpd.GeoDataFrame(
             columns=["h3_id", "geometry", "aoi_name"], crs=hex_gdf.crs
         )
@@ -46,27 +49,20 @@ def aggregate_for_aoi(
     logger.info(f"🚀 Initializing Pyrosm for AOI: {aoi_name}")
     osm = OSM(str(pbf_path), bounding_box=subgrid.union_all())
 
-    # Per-AOI slug for cache file naming
     per_aoi_slug = slugify(aoi_name)
 
     # Extract or load layers
     roads = load_or_extract(
-        "roads",
-        lambda: osm.get_network(network_type="driving"),
-        pbf_path.parent,
-        per_aoi_slug,
+        "roads", lambda: osm.get_network(network_type="driving"), per_aoi_slug
     )
-    buildings = load_or_extract(
-        "buildings", osm.get_buildings, pbf_path.parent, per_aoi_slug
-    )
+    buildings = load_or_extract("buildings", osm.get_buildings, per_aoi_slug)
     pois = load_or_extract(
         "pois",
         lambda: osm.get_pois(custom_filter={"amenity": True, "shop": True}),
-        pbf_path.parent,
         per_aoi_slug,
     )
-    landuse = load_or_extract("landuse", osm.get_landuse, pbf_path.parent, per_aoi_slug)
-    natural = load_or_extract("natural", osm.get_natural, pbf_path.parent, per_aoi_slug)
+    landuse = load_or_extract("landuse", osm.get_landuse, per_aoi_slug)
+    natural = load_or_extract("natural", osm.get_natural, per_aoi_slug)
 
     # Aggregate per layer
     agg_results = {}
@@ -81,12 +77,12 @@ def aggregate_for_aoi(
         logger.info(f"📊 Aggregating {name} for {aoi_name}...")
         agg_df = fn(data, subgrid)
         logger.success(
-            f"✅ {name.capitalize()} aggregated into "
-            f"{len(agg_df)} hexes in {time.time() - start:.1f}s"
+            f"✅ {name.capitalize()} aggregated into {len(agg_df)} "
+            f"hexes in {time.time() - start:.1f}s"
         )
         agg_results[name] = agg_df
 
-    # Merge layer aggregates
+    # Merge all aggregates into the subgrid
     merged = subgrid[["h3_id", "geometry"]]
     for df in agg_results.values():
         merged = merged.merge(df, on="h3_id", how="left")
@@ -101,7 +97,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--grid",
-        help="Path to merged AOI H3 grid (.gpkg) that contains an 'aoi_name' column.",
+        help="Optional: path to a grid file (.gpkg). Defaults to merged/single grid from metadata.",
     )
     parser.add_argument(
         "--output",
@@ -110,42 +106,44 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Load AOI metadata
-    meta_path = PIPELINE_ROOT / "aoi_info.json"
-    if not meta_path.exists():
-        raise FileNotFoundError(f"AOI metadata file not found: {rel(meta_path)}")
-    with open(meta_path, "r") as f:
+    if not AOI_META_PATH.exists():
+        raise FileNotFoundError(f"AOI metadata file not found: {rel(AOI_META_PATH)}")
+
+    with open(AOI_META_PATH, "r") as f:
         aoi_meta = json.load(f)
 
     aoi_raw = aoi_meta.get("aoi_raw")
-    slug_group = aoi_meta.get("aoi_slug")  # unified merged slug
+    slug_group = aoi_meta.get("aoi_slug")
     resolution = aoi_meta.get("h3_resolution")
 
     if not aoi_raw:
-        raise ValueError(f"Invalid metadata in {rel(meta_path)}: {aoi_meta}")
+        raise ValueError(f"Invalid metadata in {rel(AOI_META_PATH)}: {aoi_meta}")
 
-    # Ensure list
     aoi_list = [aoi_raw] if isinstance(aoi_raw, str) else list(aoi_raw)
     logger.info(f"📍 AOIs: {aoi_list} | Resolution: {resolution}")
 
-    # Resolve merged grid path
+    # Pick grid file
     if args.grid:
         grid_path = Path(args.grid)
     else:
-        grid_path = (
-            DATA_DIR / "processed" / "grid" / f"{slug_group}_res{resolution}.gpkg"
-        )
+        if len(aoi_list) > 1:
+            grid_path = MERGED_DIR / f"{slug_group}_res{resolution}.gpkg"
+        else:
+            single_slug = slugify(aoi_list[0])
+            grid_path = GRID_DIR / f"{single_slug}_res{resolution}.gpkg"
+
     if not grid_path.exists():
-        raise FileNotFoundError(f"H3 merged grid file not found: {rel(grid_path)}")
-    logger.info(f"📦 Loading merged H3 grid from {rel(grid_path)}")
+        raise FileNotFoundError(f"H3 grid file not found: {rel(grid_path)}")
+
+    logger.info(f"📦 Loading H3 grid from {rel(grid_path)}")
     hex_gdf = gpd.read_file(grid_path)
 
-    # Resolve each AOI's PBF by substring matching
-    pbf_map = {}
-    for name in aoi_list:
-        pbf_map[name] = find_pbf_for_aoi(name, EXTERNAL_DIR)
-        logger.info(f"🗺️ Using PBF for '{name}': {rel(pbf_map[name])}")
+    # Get PBF per AOI
+    pbf_map = {name: find_pbf_for_aoi(name) for name in aoi_list}
+    for name, pbf_path in pbf_map.items():
+        logger.info(f"🗺️ Using PBF for '{name}': {rel(pbf_path)}")
 
-    # Aggregate per AOI
+    # Process AOIs
     results = []
     for aoi_name in aoi_list:
         logger.info(f"🧩 Processing AOI: {aoi_name}")
@@ -155,23 +153,22 @@ if __name__ == "__main__":
 
     if not results:
         raise RuntimeError(
-            "❌ No AOIs produced results. Check your merged grid and PBF matches."
+            "❌ No AOIs produced results. Check your grid and PBF matches."
         )
 
     merged_all = gpd.GeoDataFrame(
         pd.concat(results, ignore_index=True), crs=hex_gdf.crs
     )
 
-    # Save merged output
+    # Save output
     if args.output:
         output_path = Path(args.output)
     else:
-        output_path = (
-            DATA_DIR / "processed" / "osm" / f"{slug_group}_osm_hex_features.gpkg"
-        )
+        output_path = OSM_PROCESSED_DIR / f"{slug_group}_osm_hex_features.gpkg"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     merged_safe = sanitize_for_gpkg(merged_all)
     merged_safe.to_file(output_path, driver="GPKG")
+
     logger.success(f"✅ Saved aggregated hex features to {rel(output_path)}")
     logger.info(f"📊 Total hexes (rows): {len(merged_all)}")
