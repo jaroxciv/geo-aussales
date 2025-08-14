@@ -25,3 +25,6 @@ dependencies = [
 dev = [
     "srai[osm,plotting]>=0.9.7",
 ]
+
+[tool.setuptools]
+packages = ["scripts", "data_pipeline"]
