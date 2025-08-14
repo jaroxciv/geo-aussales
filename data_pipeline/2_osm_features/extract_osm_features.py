@@ -10,6 +10,7 @@ from pyrosm import OSM
 # Import helpers
 from helpers import (
     load_or_extract,
+    sanitize_for_gpkg,
     aggregate_roads,
     aggregate_buildings,
     aggregate_pois,
@@ -93,7 +94,9 @@ if __name__ == "__main__":
         pbf_path.parent,
         slug,
     )
-    buildings = load_or_extract("buildings", osm.get_buildings, pbf_path.parent, slug_full)
+    buildings = load_or_extract(
+        "buildings", osm.get_buildings, pbf_path.parent, slug_full
+    )
     pois = load_or_extract(
         "pois",
         lambda: osm.get_pois(custom_filter={"amenity": True, "shop": True}),
@@ -145,7 +148,10 @@ if __name__ == "__main__":
         output_path = DATA_DIR / "processed" / "osm" / f"{slug}_osm_hex_features.gpkg"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    merged.to_file(output_path, driver="GPKG")
 
+    # sanitize only non-geometry columns and names
+    merged_safe = sanitize_for_gpkg(merged)
+
+    merged_safe.to_file(output_path, driver="GPKG")  # mode="w" by default
     logger.success(f"✅ Saved aggregated hex features to {rel(output_path)}")
     logger.info(f"📊 Total hexes: {len(merged)}")
