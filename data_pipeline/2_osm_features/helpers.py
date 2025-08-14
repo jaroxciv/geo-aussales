@@ -18,6 +18,58 @@ def relpath(p: Path) -> str:
         return str(p)
 
 
+def rel(path: Path) -> Path:
+    return path.relative_to(PROJECT_ROOT)
+
+
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def _slug_for_match(s: str) -> str:
+    """Lightweight slug only for matching/substring checks."""
+    s = re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
+    return re.sub(r"_+", "_", s)
+
+
+def find_pbf_for_aoi(aoi_name: str, external_dir: Path) -> Path:
+    """
+    Resolve a .osm.pbf for an AOI by substring matching on the file stem.
+    Priority:
+      1) exact stem == slug
+      2) stem contains slug
+    If none or many match, raise with a helpful message.
+    """
+    slug = _slug_for_match(aoi_name)
+    files = list(external_dir.glob("*.osm.pbf"))
+    if not files:
+        raise FileNotFoundError(f"❌ No PBFs found in {rel(external_dir)}")
+
+    exact = None
+    candidates = []
+    for p in files:
+        stem = p.stem.lower()
+        if stem == slug:
+            exact = p
+        if slug in stem:
+            candidates.append(p)
+
+    if exact:
+        return exact
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) == 0:
+        available = ", ".join(sorted(p.stem for p in files))
+        raise FileNotFoundError(
+            f"❌ Missing PBF for AOI '{aoi_name}' (slug '{slug}') in {rel(external_dir)}\n"
+            f"   Available: {available}"
+        )
+    opts = "\n   - " + "\n   - ".join(str(p.name) for p in candidates)
+    raise FileNotFoundError(
+        f"❌ Ambiguous PBF for AOI '{aoi_name}' (slug '{slug}'); multiple matches:{opts}"
+    )
+
+
 def sanitize_for_gpkg(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     """
     Make column names/dtypes GDAL-friendly:
