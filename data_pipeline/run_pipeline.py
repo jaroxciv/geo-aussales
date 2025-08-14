@@ -2,21 +2,16 @@
 import subprocess
 import argparse
 import json
-import sys
-from pathlib import Path
 from loguru import logger
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]  # geo-aussales root
-PIPELINE_DIR = Path(__file__).parent
-VENV_PYTHON = sys.executable  # use current environment
-
-# Import shared slugify for consistent naming
-from data_pipeline.utils import slugify
-
-
-def rel(path: Path) -> Path:
-    """Return path relative to project root."""
-    return path.relative_to(PROJECT_ROOT)
+from data_pipeline.constants import (
+    VENV_PYTHON,
+    PIPELINE_DIR,
+    PBF_DIR,
+    GRID_DIR,
+    AOI_META_PATH,
+)
+from data_pipeline.utils import rel, slugify, resolve_grid_path
 
 
 def run_step(command: list, step_name: str):
@@ -41,7 +36,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--country",
         default="Australia",
-        help="Country to append to AOI(s) if not already present (e.g., 'Australia')",
+        help="Country to append to AOI(s) if not already present",
     )
     parser.add_argument("--resolution", type=int, required=True, help="H3 resolution")
     args = parser.parse_args()
@@ -78,20 +73,19 @@ if __name__ == "__main__":
         "aoi_slugs_individual": slugs,
         "h3_resolution": args.resolution,
     }
-
-    metadata_path = PROJECT_ROOT / "data_pipeline" / "aoi_info.json"
-    metadata_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(metadata_path, "w") as f:
+    AOI_META_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(AOI_META_PATH, "w") as f:
         json.dump(metadata, f, indent=2)
 
-    logger.success(f"📝 Metadata created at {rel(metadata_path)}")
+    logger.success(f"📝 Metadata created at {rel(AOI_META_PATH)}")
 
     # --- Define file paths ---
-    pbf_path = PROJECT_ROOT / f"data/external/{slug}.osm.pbf"
-    grid_path = PROJECT_ROOT / f"data/processed/grid/{slug}_res{args.resolution}.gpkg"
+    grid_path = resolve_grid_path(metadata, args.resolution)
 
-    if not pbf_path.exists():
-        raise FileNotFoundError(f"❌ PBF file not found at {rel(pbf_path)}")
+    if not grid_path.exists():
+        raise FileNotFoundError(f"❌ Grid file not found at {rel(grid_path)}")
+
+    logger.info(f"📦 Using grid path: {rel(grid_path)}")
 
     # --- Run H3 Grid ---
     run_step(
