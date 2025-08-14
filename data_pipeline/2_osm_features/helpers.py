@@ -5,35 +5,13 @@ import geopandas as gpd
 from pathlib import Path
 from loguru import logger
 
+from data_pipeline.constants import PBF_DIR, CACHE_DIR, SAFE_MAXLEN
+from data_pipeline.utils import rel, relpath, _slug_for_match
 
-pd.set_option('future.no_silent_downcasting', True)
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SAFE_MAXLEN = 60  # keep some headroom
-
-
-def relpath(p: Path) -> str:
-    """Return path relative to project root."""
-    try:
-        return str(p.relative_to(PROJECT_ROOT))
-    except ValueError:
-        return str(p)
+pd.set_option("future.no_silent_downcasting", True)
 
 
-def rel(path: Path) -> Path:
-    return path.relative_to(PROJECT_ROOT)
-
-
-def slugify(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-
-
-def _slug_for_match(s: str) -> str:
-    """Lightweight slug only for matching/substring checks."""
-    s = re.sub(r"[^a-z0-9]+", "_", s.lower()).strip("_")
-    return re.sub(r"_+", "_", s)
-
-
-def find_pbf_for_aoi(aoi_name: str, external_dir: Path) -> Path:
+def find_pbf_for_aoi(aoi_name: str) -> Path:
     """
     Resolve a .osm.pbf for an AOI by substring matching on the file stem.
     Priority:
@@ -42,9 +20,9 @@ def find_pbf_for_aoi(aoi_name: str, external_dir: Path) -> Path:
     If none or many match, raise with a helpful message.
     """
     slug = _slug_for_match(aoi_name)
-    files = list(external_dir.glob("*.osm.pbf"))
+    files = list(PBF_DIR.glob("*.osm.pbf"))
     if not files:
-        raise FileNotFoundError(f"❌ No PBFs found in {rel(external_dir)}")
+        raise FileNotFoundError(f"❌ No PBFs found in {rel(PBF_DIR)}")
 
     exact = None
     candidates = []
@@ -62,7 +40,7 @@ def find_pbf_for_aoi(aoi_name: str, external_dir: Path) -> Path:
     if len(candidates) == 0:
         available = ", ".join(sorted(p.stem for p in files))
         raise FileNotFoundError(
-            f"❌ Missing PBF for AOI '{aoi_name}' (slug '{slug}') in {rel(external_dir)}\n"
+            f"❌ Missing PBF for AOI '{aoi_name}' (slug '{slug}') in {rel(PBF_DIR)}\n"
             f"   Available: {available}"
         )
     opts = "\n   - " + "\n   - ".join(str(p.name) for p in candidates)
@@ -125,9 +103,9 @@ def sanitize_for_gpkg(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     return gdf
 
 
-def load_or_extract(layer_name, extractor_fn, raw_dir, slug):
+def load_or_extract(layer_name, extractor_fn, slug):
     """Load cached layer if exists, else extract and save."""
-    path = raw_dir / f"{slug}_{layer_name}.gpkg"
+    path = CACHE_DIR / f"{slug}_{layer_name}.gpkg"
     logger.info(f"🔍 Checking {layer_name} cache at {relpath(path)}")
 
     if path.exists():
