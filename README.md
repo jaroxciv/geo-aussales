@@ -1,78 +1,113 @@
-**Geo-spatial modeling of store sales in Australia**
+# Geo-AUSSales
 
-This project aims to build a spatially-aware model to explain variation in store sales across Australia, integrating sociodemographic, urban, and environmental datasets.
+**Geospatial OSM Feature Extraction & H3 Hexagon Analysis for Australian Cities**
 
-## Objectives
+This project automates the workflow of:
 
-* Consolidate multi-year datasets covering:
+1. Extracting **OpenStreetMap** data for specific **AOIs** (Areas of Interest) from a large `.osm.pbf` file.
+2. Generating **H3 hexagonal grids** for each AOI.
+3. Aggregating **OSM features** (buildings, roads, POIs, landuse, natural features) into those hexes.
+4. Producing geospatial datasets and visualizations for further urban analysis.
 
-  * Sociodemographics (census, open data, raster data)
-  * Urban data (street networks, POIs, connectivity, accessibility, land use, buildings)
-  * Other relevant geospatial and environmental variables
-* Build a reproducible and modular pipeline for:
+## 🚀 Features
 
-  * Data acquisition and preprocessing
-  * Feature engineering
-  * Spatial statistical modeling and visualization
+* **AOI-driven processing**
+  AOIs are defined in `data_pipeline/aoi_info.json`, supporting multiple cities in a group (e.g., Inner Melbourne).
 
-## Repository Structure
+* **Parallel H3 grid generation**
+  Uses Python’s multiprocessing to generate per-city grids quickly and save a merged grid for downstream processing.
+
+* **OSM feature aggregation**
+  Uses [Pyrosm](https://pyrosm.readthedocs.io) to extract and aggregate:
+
+  * Building counts, areas, heights
+  * Road network length
+  * Points of interest
+  * Landuse and natural features
+
+* **PBF extraction per AOI**
+  Large `.osm.pbf` files are split into smaller AOI-specific extracts with `osmium`.
+
+## 📂 Project Structure
 
 ```
 geo-aussales/
-├── src/geo_aussales/       # Core Python package
-├── data/
-│   ├── raw/                # Unprocessed datasets
-│   ├── processed/          # Clean datasets
-│   └── external/           # Third-party data sources
-├── notebooks/              # Jupyter notebooks for EDA & experiments
-├── scripts/                # Standalone scripts for data tasks
-├── tests/                  # Unit and integration tests
-├── main.py                 # Entry point for running project code
-├── pyproject.toml          # uv project config & dependencies
-├── .gitignore
-└── README.md
+│
+├── data/                     # Raw and processed geospatial data
+│   ├── external/              # Raw PBFs per AOI
+│   ├── processed/             # H3 grids and aggregated results
+│   └── outputs/               # Final outputs
+│
+├── data_pipeline/             # Core data pipeline
+│   ├── 1_spatial_grid/        # H3 grid generation
+│   ├── 2_osm_features/        # OSM extraction & aggregation
+│   ├── aoi_info.json          # AOI definitions
+│   └── run_pipeline.py        # Pipeline orchestrator
+│
+├── scripts/                   # Utility scripts
+│   ├── extract_pbf.sh         # Extract AOI-specific PBFs from large PBF
+│   ├── get_polygon.py         # Get polygon for a city AOI
+│   ├── get_city_list.py       # List AOIs for a given group or enum
+│   └── cities.py              # AOI group definitions
+│
+└── pyproject.toml             # Python dependencies
 ```
 
-## Getting Started
-
-### Prerequisites
-
-* Python 3.12+
-* [uv](https://docs.astral.sh/uv/) package manager
-
-### Installation
+## 🛠 Installation
 
 ```bash
+# Clone repo
+git clone https://github.com/jaroxciv/geo-aussales.git
+cd geo-aussales
+
+# Create venv
 uv venv
+uv .venv/bin/activate  # or .\.venv\Scripts\activate on Windows
 uv sync
+
+# Install dependencies
+uv pip install -e .
 ```
 
-### Running the Project
+## ⚙️ Usage
+
+### 1️⃣ Extract AOI-specific PBFs
 
 ```bash
-python main.py
+bash scripts/extract_pbf.sh "City of Melbourne, Victoria"
 ```
 
-## Development
-
-Install development dependencies:
+or for a group:
 
 ```bash
-uv add --dev pytest black
+bash scripts/extract_pbf.sh --enum inner_melbourne
 ```
 
-Run tests:
+### 2️⃣ Generate H3 grids
 
 ```bash
-pytest
+python data_pipeline/1_spatial_grid/generate_h3_grid.py
 ```
 
-## Data Sources (Planned)
+### 3️⃣ Extract & aggregate OSM features
 
-Potential sources include:
+```bash
+python data_pipeline/2_osm_features/extract_osm_features.py
+```
 
-* Australian Bureau of Statistics (ABS) Census Data
-* OpenStreetMap for urban networks and POIs
-* Geoscience Australia datasets
-* Publicly available land use and building footprints
-* Climate and environmental data from Bureau of Meteorology
+## 📊 Example Outputs
+
+The pipeline produces **H3-based geopackages** that include aggregated OSM data for:
+
+* **Building Count**
+* **Total Building Area (m²)**
+* **Average Building Height (m)**
+
+## 📌 Notes
+
+* AOIs are matched to `.osm.pbf` files dynamically by slug substring matching.
+* Large `.osm.pbf` source files (e.g., `australia-latest.osm.pbf`) should be placed in `data/external/`.
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
