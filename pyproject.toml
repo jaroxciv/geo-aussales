@@ -23,6 +23,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "openpyxl>=3.1.5",
     "srai[osm,plotting]>=0.9.7",
 ]
 
