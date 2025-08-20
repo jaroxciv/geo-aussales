@@ -25,3 +25,7 @@ AOI_META_PATH = PIPELINE_DIR / "aoi_info.json"
 
 # For sanitising GPKG files
 SAFE_MAXLEN = 60  # keep some headroom
+
+# POI location data
+RAW_STORES_PATH = "data/raw/pois/location_stores.xlsx"
+STORES_OUTPUT_PATH = PROCESSED_DIR / "osm" / "store_access.gpkg"
