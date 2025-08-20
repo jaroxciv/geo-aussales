@@ -104,6 +104,11 @@ def main(buffer_m: float = 1000.0):
     out = stores_gdf.merge(
         pd.DataFrame(results), left_on="Store Id", right_on="StoreId", how="left"
     )
+
+    # --- Clean up duplicates ---
+    out = out.drop(columns=["StoreId", "SA3_CODE21.1", "SA3_NAME21_y", "STATE_ENUM"])
+    out = out.rename(columns={"SA3_NAME21_x": "SA3_NAME21"})
+
     STORES_OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     out.to_file(STORES_OUTPUT_PATH, driver="GPKG")
     logger.success(f"Saved {len(out):,} rows → {relpath(STORES_OUTPUT_PATH)}")
