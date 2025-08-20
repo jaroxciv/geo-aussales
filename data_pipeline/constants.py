@@ -29,3 +29,8 @@ SAFE_MAXLEN = 60  # keep some headroom
 # POI location data
 RAW_STORES_PATH = "data/raw/pois/location_stores.xlsx"
 STORES_OUTPUT_PATH = PROCESSED_DIR / "osm" / "store_access.gpkg"
+
+# Census
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+CENSUS_URL = "https://www.abs.gov.au/census/find-census-data/geopackages/download"
+CENSUS_DIR = RAW_DIR / "census"
