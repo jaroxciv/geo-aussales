@@ -68,8 +68,7 @@ def stategroup_to_pbf(state: StateGroups) -> Path:
 
     if not expected_file.exists():
         raise FileNotFoundError(
-            f"Missing PBF file for {state.name}. "
-            f"Expected: {expected_file}"
+            f"Missing PBF file for {state.name}. " f"Expected: {expected_file}"
         )
 
     logger.debug(f"Matched {state.name} -> {expected_file.name}")
