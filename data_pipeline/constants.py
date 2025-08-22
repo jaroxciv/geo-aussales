@@ -27,7 +27,7 @@ AOI_META_PATH = PIPELINE_DIR / "aoi_info.json"
 SAFE_MAXLEN = 60  # keep some headroom
 
 # POI location data
-RAW_STORES_PATH = "data/raw/pois/location_stores.xlsx"
+RAW_STORES_PATH = "data/raw/pois/location_stores_all.xlsx"
 STORES_OUTPUT_PATH = PROCESSED_DIR / "osm" / "store_access.gpkg"
 
 # Census
