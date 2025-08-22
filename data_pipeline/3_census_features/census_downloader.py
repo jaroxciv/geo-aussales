@@ -39,7 +39,9 @@ STATE_CODE_MAP = {
 Path(CENSUS_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def download_census_table(table: str, state_code: str, cache_dir: str = CENSUS_DIR) -> Path:
+def download_census_table(
+    table: str, state_code: str, cache_dir: str = CENSUS_DIR
+) -> Path:
     """
     Download and unzip a census table for a given state.
     Returns the actual .gpkg path inside the zip.
@@ -69,12 +71,16 @@ def download_census_table(table: str, state_code: str, cache_dir: str = CENSUS_D
             zf.extract(gpkg_file, cache_dir)
 
     if not gpkg_path.exists():
-        raise FileNotFoundError(f"Expected {relpath(gpkg_path)} not found after extraction.")
+        raise FileNotFoundError(
+            f"Expected {relpath(gpkg_path)} not found after extraction."
+        )
 
     return gpkg_path
 
 
-def list_census_layers(table: str, state_code: str, cache_dir: str = CENSUS_DIR) -> list[str]:
+def list_census_layers(
+    table: str, state_code: str, cache_dir: str = CENSUS_DIR
+) -> list[str]:
     """
     List all available layers in a given table/state GeoPackage.
 
@@ -163,7 +169,9 @@ if __name__ == "__main__":
         description="Download and load ABS Census GeoPackages (2021)."
     )
     parser.add_argument("table", help="Census table ID, e.g. G02, G17")
-    parser.add_argument("geography", help="Geography level, e.g. SA1, SA2, SA3, LGA, POA")
+    parser.add_argument(
+        "geography", help="Geography level, e.g. SA1, SA2, SA3, LGA, POA"
+    )
     parser.add_argument(
         "--nationwide",
         action="store_true",
@@ -185,7 +193,9 @@ if __name__ == "__main__":
         # Save nationwide file
         outfile = Path(CENSUS_DIR) / f"{args.table}_{args.geography}_AUS.gpkg"
         nationwide.to_file(outfile, driver="GPKG")
-        logger.success(f"Saved nationwide {args.table}/{args.geography} to {relpath(outfile)}")
+        logger.success(
+            f"Saved nationwide {args.table}/{args.geography} to {relpath(outfile)}"
+        )
 
     else:
         # Load each state separately (dict)
@@ -195,4 +205,6 @@ if __name__ == "__main__":
         for state, gdf in all_states.items():
             outfile = Path(CENSUS_DIR) / f"{args.table}_{args.geography}_{state}.gpkg"
             gdf.to_file(outfile, driver="GPKG")
-            logger.success(f"Saved {args.table}/{args.geography} for {state} to {relpath(outfile)}")
+            logger.success(
+                f"Saved {args.table}/{args.geography} for {state} to {relpath(outfile)}"
+            )
