@@ -41,7 +41,9 @@ def haversine_np(lat1, lon1, lat2, lon2):
 # -------------------------------
 
 
-def _ensure_points(gdf: gpd.GeoDataFrame, label: str) -> gpd.GeoDataFrame:
+def _ensure_points(
+    gdf: gpd.GeoDataFrame, label: str, debug: bool = False
+) -> gpd.GeoDataFrame:
     """
     Ensure geometries are Points. Non-points are converted to centroids.
     Logs a debug message if any conversions happen.
@@ -51,10 +53,11 @@ def _ensure_points(gdf: gpd.GeoDataFrame, label: str) -> gpd.GeoDataFrame:
 
     non_points = gdf[~gdf.geometry.geom_type.eq("Point")]
     if not non_points.empty:
-        logger.debug(
-            f"{label}: Converting {len(non_points)} non-point geometries "
-            f"({non_points.geometry.geom_type.unique().tolist()}) → centroids"
-        )
+        if debug:
+            logger.debug(
+                f"{label}: Converting {len(non_points)} non-point geometries "
+                f"({non_points.geometry.geom_type.unique().tolist()}) → centroids"
+            )
         gdf = gdf.copy()
         gdf["geometry"] = gdf.geometry.apply(
             lambda g: g if g.geom_type == "Point" else g.representative_point()
@@ -110,6 +113,17 @@ def count_within_buffer(
     lon2 = subset.geometry.x.values
     dists = haversine_np(lat1, lon1, lat2, lon2)
     return int((dists <= buffer_m).sum())
+
+
+# -------------------------------
+# Metric Registry
+# -------------------------------
+
+METRICS = {
+    "nearest": nearest_distance,
+    "count": count_within_buffer,
+    # Extensible: add more metrics here
+}
 
 
 # -------------------------------
