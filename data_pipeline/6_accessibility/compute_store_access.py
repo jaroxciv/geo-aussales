@@ -1,3 +1,18 @@
+"""
+compute_store_access.py
+-----------------------
+Compute accessibility metrics from stores to OSM-based urban features.
+
+Uses:
+- SRAI's BASE_OSM_GROUPS_FILTER for group definitions
+- Per-state cached OSM POIs via loader.py
+- Vectorised haversine metrics from metrics.py
+
+Outputs:
+- Store GeoPackage with nearest distance + count within buffer
+  for the selected OSM group (e.g., transportation, education, healthcare).
+"""
+
 import argparse
 import pandas as pd
 import geopandas as gpd
@@ -7,23 +22,23 @@ from tqdm import tqdm
 
 from data_pipeline.utils import relpath
 from data_pipeline.constants import RAW_STORES_PATH, STORES_OUTPUT_PATH
-from registry import TRANSIT_MODES, TRANSIT_ROUTE_FILTERS, METRICS
-from metrics import format_meters
-from helper_pois import load_or_build_state_transit
-from helper_routes import load_or_build_state_transit_routes
 from geo_lookup import resolve_state_from_code
+from loader import load_or_build_group, get_group_subcategories
+from urban_groups import list_groups
+from metrics import METRICS, format_meters
 
 
 def main(
-    buffer_m: float = 1000.0,
-    geo_level: str = "SA3",
-    store_type: str = None,
-    use_routes: bool = False,
+    buffer_m: float,
+    geo_level: str,
+    store_type: str,
+    group: str,
+    verbose_stores: bool = False,
 ):
     logger.info(f"Loading stores from {RAW_STORES_PATH}")
     df = pd.read_excel(RAW_STORES_PATH)
 
-    # Optional filtering
+    # Optional filter
     if store_type:
         if "type" not in df.columns:
             raise ValueError(
@@ -47,7 +62,7 @@ def main(
         crs="EPSG:4326",
     )
 
-    # Map state
+    # Map state via geo lookup
     logger.info(f"Mapping stores → {geo_level}_CODE21 → StateGroups")
     stores_gdf["STATE_ENUM"] = stores_gdf[code_col].apply(
         lambda c: resolve_state_from_code(c, level=geo_level)
@@ -59,52 +74,37 @@ def main(
 
     for state in states:
         state_stores = stores_gdf[stores_gdf["STATE_ENUM"] == state].copy()
-        logger.info(f"Processing {len(state_stores)} stores in {state.name}")
-
-        # Decide stops vs routes
-        source_type = "routes" if use_routes else "stops"
-        loader = (
-            load_or_build_state_transit_routes
-            if use_routes
-            else load_or_build_state_transit
+        logger.info(
+            f"Processing {len(state_stores)} stores in {state.name} for group={group}"
         )
-        transit = loader(state)
 
-        if transit.empty:
-            logger.warning(f"No transit {source_type} in {state.name}. Marking as ∞/0.")
-            for _, store in state_stores.iterrows():
-                row = {
-                    "StoreId": store["Store Id"],
-                    name_col: store[name_col],
-                    "STATE": state.name,
-                }
-                for mode in TRANSIT_MODES:
-                    row[f"nearest_{mode}_m"] = float("inf")
-                    row[f"{mode}_count_{int(buffer_m)}m"] = 0
-                results.append(row)
-            continue
+        pois = load_or_build_group(state, group, aggregate=args.aggregate)
+        all_modes = (
+            [group] if args.aggregate else list(get_group_subcategories(group).keys())
+        )
 
-        # Ensure mode column exists
-        if "mode" not in transit.columns:
-            logger.warning(
-                f"Transit data for {state.name} missing 'mode' column → defaulting to 'unknown'"
-            )
-            transit["mode"] = "unknown"
+        # Spatial index
+        sidx = pois.sindex if not pois.empty else None
 
-        # Spatial index for pre-filtering
-        sidx = transit.sindex
+        state_mode_counts = {m: 0 for m in all_modes}  # track counts across all stores
 
         for _, store in tqdm(
             state_stores.iterrows(), total=len(state_stores), desc=state.name
         ):
             pt: Point = store.geometry
-
-            # Quick bounding box filter
             deg = buffer_m / 111_000.0
             bbox_poly = box(pt.x - deg, pt.y - deg, pt.x + deg, pt.y + deg)
-            cand_idx = list(sidx.intersection(bbox_poly.bounds))
-            subset = transit.iloc[cand_idx]
-            subset = subset[subset.geometry.within(bbox_poly)]
+            cand_idx = list(sidx.intersection(bbox_poly.bounds)) if sidx else []
+            subset = (
+                pois.iloc[cand_idx]
+                if cand_idx
+                else gpd.GeoDataFrame(columns=pois.columns, crs=pois.crs)
+            )
+            subset = (
+                subset[subset.geometry.within(bbox_poly)]
+                if not subset.empty
+                else subset
+            )
 
             row = {
                 "StoreId": store["Store Id"],
@@ -112,33 +112,58 @@ def main(
                 "STATE": state.name,
             }
 
-            if subset.empty:
-                for mode in TRANSIT_MODES:
-                    row[f"nearest_{mode}_m"] = float("inf")
-                    row[f"{mode}_count_{int(buffer_m)}m"] = 0
-                results.append(row)
-                continue
+            store_summary = []
 
-            # Compute metrics per mode
-            for mode in TRANSIT_MODES:
+            for mode in all_modes:
+                if subset.empty or mode not in subset["mode"].values:
+                    row[f"nearest_{group}_{mode}_m"] = float("inf")
+                    row[f"{group}_{mode}_count_{int(buffer_m)}m"] = 0
+                    if verbose_stores:
+                        logger.debug(
+                            f"Store {store['Store Id']} [{store[name_col]}]: "
+                            f"{group}:{mode} → no features (∞, 0)"
+                        )
+                    else:
+                        store_summary.append(f"{mode}=(∞,0)")
+                    continue
+
+                nearest_val, count_val = None, None
                 for metric_name, metric_fn in METRICS.items():
                     value = metric_fn(pt, subset, buffer_m, mode)
                     if metric_name == "nearest":
-                        row[f"nearest_{mode}_m"] = value
+                        nearest_val = value
+                        row[f"nearest_{group}_{mode}_m"] = value
                     elif metric_name == "count":
-                        row[f"{mode}_count_{int(buffer_m)}m"] = value
+                        count_val = value
+                        row[f"{group}_{mode}_count_{int(buffer_m)}m"] = value
                     else:
-                        row[f"{metric_name}_{mode}"] = value
+                        row[f"{metric_name}_{group}_{mode}"] = value
 
-                    logger.debug(
-                        f"Store {store['Store Id']} [{store[name_col]}]: "
-                        f"{metric_name} {mode}="
-                        f"{format_meters(value) if metric_name=='nearest' else value}"
+                    if verbose_stores:
+                        logger.debug(
+                            f"Store {store['Store Id']} [{store[name_col]}]: "
+                            f"{group}:{mode} {metric_name}="
+                            f"{format_meters(value) if metric_name=='nearest' else value}"
+                        )
+
+                if not verbose_stores:
+                    store_summary.append(
+                        f"{mode}=({format_meters(nearest_val)},{count_val})"
                     )
+
+                # Accumulate counts for state-level summary
+                if count_val is not None:
+                    state_mode_counts[mode] += count_val
 
             results.append(row)
 
-    # Merge results back
+        # --- After finishing the state ---
+        counts_str = ", ".join(f"{m}={c}" for m, c in state_mode_counts.items())
+        logger.info(
+            f"Finished {state.name}: {len(state_stores)} stores processed | {counts_str}"
+        )
+
+    # Merge results
     out = stores_gdf.merge(
         pd.DataFrame(results), left_on="Store Id", right_on="StoreId", how="left"
     )
@@ -161,7 +186,7 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Compute store accessibility to transit (stops or routes)"
+        description="Compute store accessibility to OSM groups"
     )
     parser.add_argument(
         "--buffer",
@@ -178,14 +203,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--store-type", default="trs", help="Optional store type filter, e.g. 'trs'"
     )
+    parser.add_argument("--group", choices=list_groups(), help="OSM group to use")
     parser.add_argument(
-        "--use-routes", action="store_true", help="Use transit routes instead of stops"
+        "--list-groups", action="store_true", help="List available OSM groups and exit"
+    )
+    parser.add_argument(
+        "--aggregate",
+        action="store_true",
+        help="Aggregate group into one lumped category instead of subcategories.",
+    )
+    parser.add_argument(
+        "--verbose-stores",
+        action="store_true",
+        help="Log per-store, per-mode metrics (very verbose). Default: False",
     )
     args = parser.parse_args()
+
+    if args.list_groups:
+        print("Available OSM groups:")
+        for g in list_groups():
+            print(f" - {g}")
+        exit(0)
+
+    if not args.group:
+        parser.error(
+            "the following arguments are required: --group (unless --list-groups is used)"
+        )
 
     main(
         buffer_m=args.buffer,
         geo_level=args.geo_level,
         store_type=args.store_type,
-        use_routes=args.use_routes,
+        group=args.group,
+        verbose_stores=args.verbose_stores,
     )
