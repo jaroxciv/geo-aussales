@@ -30,7 +30,7 @@ from data_pipeline.utils import relpath
 from data_pipeline.constants import STORES_OUTPUT_PATH
 from urban_groups import list_groups
 from engine import AccessibilityEngine
-from metrics_registry import METRICS_BY_LAYER
+from metrics.metrics_registry import METRICS_BY_LAYER
 
 
 def main(args):
