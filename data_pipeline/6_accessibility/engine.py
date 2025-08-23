@@ -1,4 +1,3 @@
-# data_pipeline/6_accessibility/engine.py
 from __future__ import annotations
 from typing import Dict, List, Optional
 import pandas as pd
@@ -12,6 +11,7 @@ from geo_lookup import resolve_state_from_code
 from loader import get_group_subcategories
 from osm_loader import OSMLoader
 from base_metric import AccessibilityMetric
+from summaries.registry import SUMMARY_REGISTRY
 
 
 class AccessibilityEngine:
@@ -21,11 +21,9 @@ class AccessibilityEngine:
         buffer_m: float,
         geo_level: str,
         store_type: Optional[str],
-        group: str,
+        group: Optional[str],
+        layers: List[str],
         metrics_by_layer: Dict[str, List[AccessibilityMetric]],
-        layers: List[str] = [
-            "pois"
-        ],  # extend with "network","buildings","landuse","natural"
         aggregate_group: bool = False,
         verbose_stores: bool = False,
     ):
@@ -45,10 +43,12 @@ class AccessibilityEngine:
                 raise ValueError("Store file missing 'type' column for filtering.")
             df = df[df["type"] == self.store_type]
             logger.info(f"Filtered stores to type='{self.store_type}' → {len(df)} rows")
+
         code_col = f"{self.geo_level.upper()}_CODE21"
         if not {"Store Id", "lat", "lon", code_col}.issubset(df.columns):
             missing = {"Store Id", "lat", "lon", code_col} - set(df.columns)
             raise ValueError(f"Missing required columns: {missing}")
+
         gdf = gpd.GeoDataFrame(
             df.copy(),
             geometry=gpd.points_from_xy(df["lon"], df["lat"]),
@@ -63,7 +63,6 @@ class AccessibilityEngine:
     def _subset_by_bbox(
         self, pt: Point, features: gpd.GeoDataFrame
     ) -> gpd.GeoDataFrame:
-        """Fast candidate subset using bbox + sindex; precise circle filter can be added later."""
         if features is None or features.empty:
             return features
         deg = self.buffer_m / 111_000.0
@@ -88,10 +87,12 @@ class AccessibilityEngine:
             loader = OSMLoader(state)
 
             logger.info(
-                f"Processing {len(state_stores)} stores in {state.name} for group={self.group}"
+                f"Processing {len(state_stores)} stores in {state.name} "
+                f"for layers={self.layers}"
+                + (f", group={self.group}" if "pois" in self.layers else "")
             )
 
-            # Preload POIs + other layers
+            # Preload layers once per state
             layer_data: Dict[str, gpd.GeoDataFrame] = {}
             for layer in self.layers:
                 if layer == "pois":
@@ -101,14 +102,17 @@ class AccessibilityEngine:
                 else:
                     layer_data[layer] = loader.load(layer)
 
-            all_modes = (
-                [self.group]
-                if self.aggregate_group
-                else list(get_group_subcategories(self.group).keys())
-            )
-
-            # --- Track totals for state summary ---
-            state_mode_counts = {m: 0 for m in all_modes}
+            # Modes only for POIs
+            if "pois" in self.layers:
+                all_modes = (
+                    [self.group]
+                    if self.aggregate_group
+                    else list(get_group_subcategories(self.group).keys())
+                )
+                state_mode_counts = {m: 0 for m in all_modes}
+            else:
+                all_modes = []
+                state_mode_counts = {}
 
             # --- Iterate stores with tqdm ---
             for _, store in tqdm(
@@ -153,12 +157,28 @@ class AccessibilityEngine:
                 results.append(row)
 
             # --- Summarise state ---
-            counts_str = ", ".join(f"{m}={state_mode_counts[m]}" for m in all_modes)
-            logger.info(
-                f"Finished {state.name}: {len(state_stores)} stores processed | {counts_str}"
-            )
+            df_results = pd.DataFrame(results)
 
-        # Merge with store geometries and save
+            layer_summaries = []
+            for layer in self.layers:
+                if layer in SUMMARY_REGISTRY:
+                    summary_str = SUMMARY_REGISTRY[layer].summarise(
+                        df_results, state.name
+                    )
+                    if summary_str:
+                        layer_summaries.append(summary_str)
+
+            if layer_summaries:
+                logger.info(
+                    f"Finished {state.name}: {len(state_stores)} stores processed | "
+                    + " | ".join(layer_summaries)
+                )
+            else:
+                logger.info(
+                    f"Finished {state.name}: {len(state_stores)} stores processed"
+                )
+
+        # Merge with stores and save
         out = stores.merge(
             pd.DataFrame(results), left_on="Store Id", right_on="StoreId", how="left"
         )
