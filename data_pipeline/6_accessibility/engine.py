@@ -10,7 +10,7 @@ from data_pipeline.utils import relpath
 from geo_lookup import resolve_state_from_code
 from loader import get_group_subcategories
 from osm_loader import OSMLoader
-from base_metric import AccessibilityMetric
+from metrics.base_metric import AccessibilityMetric
 from summaries.registry import SUMMARY_REGISTRY
 
 
